@@ -9,7 +9,8 @@ interface Appender : AutoCloseable {
 }
 
 interface Querier : AutoCloseable {
-    fun select(range: TimeRange, matchers: List<Matcher>): SeriesSet
+    val range: TimeRange
+    fun select(matchers: List<Matcher>): SeriesSet
 }
 
 interface TSDB : AutoCloseable {
