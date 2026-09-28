@@ -2,7 +2,7 @@ plugins {
     kotlin("jvm") version "2.4.10"
 }
 
-group = "org.example"
+group = "org.pirsbd.tsdb"
 version = "1.0-SNAPSHOT"
 
 repositories {
