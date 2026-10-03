@@ -10,5 +10,7 @@ data class TimeRange(val minTime: Long, val maxTime: Long) {
     fun overlaps(other: TimeRange): Boolean =
         minTime <= other.maxTime && other.minTime <= maxTime
 
+    fun overlaps(other: Long) : Boolean = other in minTime..maxTime
+
     fun contains(t: Long): Boolean = t in minTime..maxTime
 }
