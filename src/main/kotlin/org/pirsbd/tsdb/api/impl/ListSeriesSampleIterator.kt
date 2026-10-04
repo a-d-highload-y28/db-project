@@ -7,7 +7,7 @@ internal class ListSeriesSampleIterator(private val list: List<Sample>) : Series
     private var index = -1
 
     override fun next(): Boolean {
-        if (index >= list.size) return false
+        if (index + 1 >= list.size) return false
 
         ++index
         return true
