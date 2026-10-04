@@ -36,7 +36,11 @@ internal class Tombstones {
         return lock.readLock().withLock {
             val map = HashMap<SeriesRef, ArrayList<TimeRange>>()
             for (ref in refs) {
-                map[ref] = tombstones.getOrDefault(ref, ArrayList())
+                val ranges = tombstones.getOrDefault(ref, ArrayList())
+                val copy = ArrayList<TimeRange>(ranges.size)
+                copy.addAll(ranges)
+
+                map[ref] = copy
             }
 
             return@withLock map

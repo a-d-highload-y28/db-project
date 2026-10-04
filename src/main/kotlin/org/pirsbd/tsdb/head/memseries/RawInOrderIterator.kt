@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 
 class RawInOrderIterator(private val buffer: ByteBuffer) : PeekingIterator<Sample> {
     var index: Int = 0
-    var position: Int = Long.SIZE_BYTES
+    var position: Int = Int.SIZE_BYTES
 
 
     override fun next(): Sample {
@@ -39,7 +39,7 @@ class RawInOrderIterator(private val buffer: ByteBuffer) : PeekingIterator<Sampl
         return Sample(timestamp, value)
     }
 
-    private fun getCount(): Long {
-        return buffer.getLong(0)
+    private fun getCount(): Int {
+        return buffer.getInt(0)
     }
 }

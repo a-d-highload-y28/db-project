@@ -8,5 +8,5 @@ interface InOrderSeries {
 
     fun iterator(): PeekingIterator<Sample>
 
-    fun count(): Long
+    fun count(): Int
 }

@@ -75,10 +75,13 @@ class MemoryHead : Head {
         //min
         while (true) {
             val time = minTime.load()
+
             if (timestamp < time)
             {
                 if (minTime.compareAndSet(time, timestamp))
                     break
+
+                else continue
             }
 
             break
@@ -87,10 +90,13 @@ class MemoryHead : Head {
         //max
         while (true) {
             val time = maxTime.load()
-            if (timestamp < time)
+
+            if (timestamp > time)
             {
                 if (maxTime.compareAndSet(time, timestamp))
                     break
+
+                else continue
             }
 
             break

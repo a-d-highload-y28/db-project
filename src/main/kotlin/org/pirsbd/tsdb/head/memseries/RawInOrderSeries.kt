@@ -5,25 +5,40 @@ import org.pirsbd.tsdb.common.PeekingIterator
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class RawInOrderSeries : InOrderSeries {
-    private val buffer: ByteBuffer = ByteBuffer.allocate(Long.SIZE_BYTES)
+class RawInOrderSeries(private var capacity: Int = 16) : InOrderSeries {
+    private var buffer: ByteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES + (Long.SIZE_BYTES + Double.SIZE_BYTES) * capacity.toInt())
         .order(ByteOrder.BIG_ENDIAN)
-        .putLong(0)
+        .putInt(0)
 
     override fun insert(timestamp: Long, value: Double) {
-        var count = buffer.getLong(0)
+        var count = buffer.getInt(0)
+
+        if (capacity <= count)
+            extend(capacity * 2)
+
         count += 1
 
         buffer.putLong(timestamp)
         buffer.putDouble(value)
 
-        buffer.putLong(0, count)
+        buffer.putInt(0, count)
     }
 
     override fun iterator(): PeekingIterator<Sample> = RawInOrderIterator(buffer)
 
-    override fun count(): Long {
-        return buffer.getLong(0)
+    override fun count(): Int {
+        return buffer.getInt(0)
+    }
+
+    private fun extend(newCapacity: Int) {
+        val newBuffer = ByteBuffer.allocate(Int.SIZE_BYTES + (Long.SIZE_BYTES + Double.SIZE_BYTES) * newCapacity)
+            .order(ByteOrder.BIG_ENDIAN);
+
+        buffer.flip()
+        newBuffer.put(buffer)
+
+        buffer = newBuffer
+        capacity = newCapacity
     }
 }
 

@@ -4,7 +4,7 @@ import org.pirsbd.tsdb.api.Sample
 import org.pirsbd.tsdb.api.SeriesIterator
 
 internal class ListSeriesSampleIterator(private val list: List<Sample>) : SeriesIterator {
-    private var index = 0
+    private var index = -1
 
     override fun next(): Boolean {
         if (index >= list.size) return false
