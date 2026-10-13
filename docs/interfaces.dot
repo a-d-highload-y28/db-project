@@ -1,0 +1,137 @@
+digraph TSDB {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Inter";
+    node [shape=box, style="filled,rounded", fontname="Inter", fontsize=11, margin="0.2,0.1", penwidth=0];
+    edge [fontname="Inter", fontsize=9, color="#888888", penwidth=1];
+    compound=true;
+    nodesep=0.3;
+    ranksep=0.6;
+
+    // ============= API =============
+    subgraph cluster_api {
+        label="api";
+        style="filled,rounded";
+        fillcolor="#FFF7ED";
+        color="#F97316";
+        fontname="Inter";
+        fontsize=13;
+        labeljust=l;
+
+        TSDB     [label="TSDB\n────\n+ appender()\n+ querier(range)\n+ delete()", fillcolor="#FED7AA"];
+        Appender [label="Appender\n────\n+ add(labels, t, v)\n+ commit()\n+ rollback()", fillcolor="#FED7AA"];
+        Querier  [label="Querier\n────\n+ range: TimeRange\n+ select(matchers)", fillcolor="#FED7AA"];
+        SeriesSet [label="SeriesSet\n────\n+ next()\n+ at(): Series", fillcolor="#FED7AA"];
+        Series    [label="Series\n────\n+ labels: Labels\n+ iterator()", fillcolor="#FED7AA"];
+        SeriesIt  [label="SeriesIterator\n────\n+ next()\n+ at(): Sample", fillcolor="#FED7AA"];
+        Sample    [label="Sample\n────\ntimestamp: Long\nvalue: Double", fillcolor="#FFEDD5", shape=note];
+        Label     [label="Label\n────\nname: String\nvalue: String", fillcolor="#FFEDD5", shape=note];
+        Labels    [label="Labels\n────\nsorted list", fillcolor="#FFEDD5", shape=note];
+        TimeRange [label="TimeRange\n────\nminTime, maxTime", fillcolor="#FFEDD5", shape=note];
+        Matcher   [label="Matcher\n────\nsealed\n▸ Equals", fillcolor="#FFEDD5", shape=note];
+    }
+
+    // ============= CHUNKS =============
+    subgraph cluster_chunks {
+        label="chunks";
+        style="filled,rounded";
+        fillcolor="#EFF6FF";
+        color="#3B82F6";
+        fontname="Inter";
+        fontsize=13;
+        labeljust=l;
+
+        Chunk         [label="Chunk\n────\n+ encoding\n+ range\n+ numSamples\n+ iterator()", fillcolor="#BFDBFE"];
+        ChunkIt       [label="ChunkIterator\n────\n+ next()\n+ at()\n+ seek(t)", fillcolor="#BFDBFE"];
+        ChunkBuilder  [label="ChunkBuilder\n────\n+ append(sample)\n+ build(): Chunk", fillcolor="#BFDBFE"];
+        ChunkReader   [label="ChunkReader\n────\n+ read(ref): Chunk", fillcolor="#BFDBFE"];
+        ChunkWriter   [label="ChunkWriter\n────\n+ write(chunk): ref\n+ flush()", fillcolor="#BFDBFE"];
+        ChunkEncoding [label="ChunkEncoding\n────\nRAW | XOR", fillcolor="#DBEAFE", shape=note];
+        ChunkRef      [label="ChunkRef\n────\nvalue: Long", fillcolor="#DBEAFE", shape=note];
+    }
+
+    // ============= INDEX =============
+    subgraph cluster_index {
+        label="index";
+        style="filled,rounded";
+        fillcolor="#F0FDF4";
+        color="#22C55E";
+        fontname="Inter";
+        fontsize=13;
+        labeljust=l;
+
+        IndexReader  [label="IndexReader\n────\n+ symbols()\n+ series(ref)\n+ postings(n,v)\n+ labelNames()\n+ labelValues()", fillcolor="#BBF7D0"];
+        IndexWriter  [label="IndexWriter\n────\n+ addSymbol()\n+ addSeries()\n+ finish()", fillcolor="#BBF7D0"];
+        Postings     [label="Postings\n────\n+ next()\n+ seek(target)\n+ at(): SeriesRef", fillcolor="#BBF7D0"];
+        SymbolTable  [label="SymbolTable\n────\n+ lookup(id)\n+ idOf(str)", fillcolor="#BBF7D0"];
+        SeriesEntry  [label="SeriesEntry\n────\nlabels\nchunks", fillcolor="#DCFCE7", shape=note];
+        SeriesChunkMeta [label="SeriesChunkMeta\n────\nref, range", fillcolor="#DCFCE7", shape=note];
+        SeriesRef    [label="SeriesRef\n────\nvalue: Long", fillcolor="#DCFCE7", shape=note];
+    }
+
+    // ============= STORAGE =============
+    subgraph cluster_storage {
+        label="storage";
+        style="filled,rounded";
+        fillcolor="#FAF5FF";
+        color="#A855F7";
+        fontname="Inter";
+        fontsize=13;
+        labeljust=l;
+
+        Block        [label="Block\n────\n+ meta\n+ index()\n+ chunks()\n+ tombstones()", fillcolor="#E9D5FF"];
+        BlockWriter  [label="BlockWriter\n────\n+ chunks: ChunkWriter\n+ index: IndexWriter\n+ tombstones\n+ finish(meta)", fillcolor="#E9D5FF"];
+        Storage      [label="Storage\n────\n+ blocks()\n+ addBlock()\n+ removeBlock()\n+ newBlockWriter()", fillcolor="#E9D5FF"];
+        TombstoneR   [label="TombstoneReader\n────\n+ get(ref)", fillcolor="#E9D5FF"];
+        TombstoneW   [label="TombstoneWriter\n────\n+ add(ref, range)\n+ finish()", fillcolor="#E9D5FF"];
+        BlockMeta    [label="BlockMeta\n────\nulid, range,\nstats, compaction", fillcolor="#F3E8FF", shape=note];
+    }
+
+    // ============= HEAD =============
+    subgraph cluster_head {
+        label="head";
+        style="filled,rounded";
+        fillcolor="#FEF2F2";
+        color="#EF4444";
+        fontname="Inter";
+        fontsize=13;
+        labeljust=l;
+
+        Head [label="Head\n────\n+ range\n+ append(labels, t, v)\n+ query(range, matchers)\n+ delete()\n+ truncate(t): Block?", fillcolor="#FECACA"];
+    }
+
+    // ============= EDGES =============
+    TSDB -> Appender [label="creates"];
+    TSDB -> Querier  [label="creates"];
+    Querier -> SeriesSet [label="produces"];
+    SeriesSet -> Series  [style=dashed];
+    Series -> SeriesIt   [label="creates"];
+    SeriesIt -> Sample   [style=dashed];
+
+    Chunk -> ChunkIt [label="creates"];
+    Chunk -> ChunkEncoding [style=dashed, arrowhead=none];
+    ChunkBuilder -> Chunk [label="builds"];
+    ChunkReader -> Chunk [label="reads"];
+    ChunkWriter -> ChunkRef [label="returns"];
+
+    IndexReader -> SymbolTable [style=dashed];
+    IndexReader -> SeriesEntry [style=dashed];
+    IndexReader -> Postings    [style=dashed];
+    IndexWriter -> SeriesRef   [label="returns"];
+    SeriesEntry -> SeriesChunkMeta [arrowhead=none];
+    SeriesChunkMeta -> ChunkRef    [lhead=cluster_chunks, style=dotted, constraint=false];
+    Postings -> SeriesRef [style=dashed];
+
+    Block -> BlockMeta [arrowhead=none];
+    Block -> IndexReader    [lhead=cluster_index, style=dotted, constraint=false];
+    Block -> ChunkReader    [lhead=cluster_chunks, style=dotted, constraint=false];
+    Block -> TombstoneR;
+    BlockWriter -> ChunkWriter [lhead=cluster_chunks, style=dotted, constraint=false];
+    BlockWriter -> IndexWriter [lhead=cluster_index, style=dotted, constraint=false];
+    BlockWriter -> TombstoneW;
+    Storage -> Block       [label="contains"];
+    Storage -> BlockWriter [label="creates"];
+
+    Head -> SeriesSet [lhead=cluster_api, style=dotted, constraint=false, label="produces"];
+    Head -> Block     [label="flushes"];
+}
