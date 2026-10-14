@@ -1,6 +1,7 @@
 package org.pirsbd.tsdb.api.impl
 
 import org.pirsbd.tsdb.api.Appender
+import org.pirsbd.tsdb.api.Labels
 import org.pirsbd.tsdb.api.Matcher
 import org.pirsbd.tsdb.api.Querier
 import org.pirsbd.tsdb.api.SeriesSource
@@ -36,6 +37,22 @@ class DefaultTSDB(
             block.addTombstones(block.offsetsOf(matchers).map { Tombstone(it, range) })
         }
     }
+
+    /**
+     * Только для демо: из каких источников эта серия отдаётся сейчас.
+     * HEAD, BLOCK или оба. Без этой пометки на защите невозможно показать,
+     * что merge действительно работает, а не что всё лежит в памяти.
+     */
+    internal fun sourceTagsOf(labels: Labels, range: TimeRange): List<String> {
+        val matchers = labels.map { Matcher.Equals(it.name, it.value) }
+        val tags = ArrayList<String>(2)
+        if (hasAny(head, range, matchers)) tags.add("HEAD")
+        if (storage.overlapping(range).any { hasAny(it, range, matchers) }) tags.add("BLOCK")
+        return tags
+    }
+
+    private fun hasAny(source: SeriesSource, range: TimeRange, matchers: List<Matcher>): Boolean =
+        source.select(range, matchers).use { it.next() }
 
     override fun flush() {
         val snapshot = head.truncate(Long.MAX_VALUE) ?: return
