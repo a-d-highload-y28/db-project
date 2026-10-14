@@ -11,5 +11,5 @@ interface Head : AutoCloseable {
     fun append(labels: Labels, timestamp: Long, value: Double)
     fun query(range: TimeRange, matchers: List<Matcher>): SeriesSet
     fun delete(range: TimeRange, matchers: List<Matcher>)
-    fun truncate(minTime: Long): Block?
+    fun trim(minTime: TimeRange): Block
 }

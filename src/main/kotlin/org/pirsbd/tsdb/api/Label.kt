@@ -1,6 +1,6 @@
 package org.pirsbd.tsdb.api
 
-data class  Label(val name: String, val value: String) : Comparable<Label> {
+data class Label(val name: String, val value: String) : Comparable<Label> {
     override fun compareTo(other: Label): Int {
         val n = name.compareTo(other.name)
         return if (n != 0) n else value.compareTo(other.value)
