@@ -30,13 +30,23 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
     val outOfOrderMemorySeries: List<Sample>
         get() = outOfOrderSeries
 
+    /**
+     * Дубликат пары (серия, timestamp) перезаписывается: последний выигрывает.
+     * Это делает запись идемпотентной, что нужно для ретраев в лабе 3 и для
+     * переигрывания на реплике в лабе 4.
+     */
     fun append(timestamp: Long, value: Double) {
         lock.writeLock().withLock {
-            if (timestamp >= latestTimestamp) {
-                inOrderSeries.insert(timestamp, value)
-                latestTimestamp = timestamp;
-            } else {
-                addOutOfOrder(timestamp, value)
+            when {
+                timestamp == latestTimestamp && inOrderSeries.count() > 0 ->
+                    inOrderSeries.replaceLast(timestamp, value)
+
+                timestamp > latestTimestamp -> {
+                    inOrderSeries.insert(timestamp, value)
+                    latestTimestamp = timestamp
+                }
+
+                else -> addOutOfOrder(timestamp, value)
             }
         }
     }
@@ -105,12 +115,12 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
 
     // O(n)
     private fun addOutOfOrder(timestamp: Long, value: Double) {
-        var insertionPoint = outOfOrderSeries.binarySearch { x -> x.timestamp.compareTo(timestamp) }
+        val found = outOfOrderSeries.binarySearch { x -> x.timestamp.compareTo(timestamp) }
 
-        if (insertionPoint < 0) {
-            insertionPoint = -(insertionPoint + 1)
+        if (found >= 0) {
+            outOfOrderSeries[found] = Sample(timestamp, value)
+        } else {
+            outOfOrderSeries.add(-(found + 1), Sample(timestamp, value))
         }
-
-        outOfOrderSeries.add(insertionPoint, Sample(timestamp, value))
     }
 }

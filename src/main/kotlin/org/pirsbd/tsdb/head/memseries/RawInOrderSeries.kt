@@ -24,6 +24,14 @@ class RawInOrderSeries(private var capacity: Int = 16) : InOrderSeries {
         buffer.putInt(0, count)
     }
 
+    override fun replaceLast(timestamp: Long, value: Double) {
+        val count = buffer.getInt(0)
+        require(count > 0) { "replaceLast on an empty series" }
+        val offset = Int.SIZE_BYTES + (count - 1) * (Long.SIZE_BYTES + Double.SIZE_BYTES)
+        buffer.putLong(offset, timestamp)
+        buffer.putDouble(offset + Long.SIZE_BYTES, value)
+    }
+
     override fun iterator(): PeekingIterator<Sample> = RawInOrderIterator(buffer)
 
     override fun count(): Int {

@@ -7,79 +7,55 @@ import org.pirsbd.tsdb.index.SeriesRef
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.withLock
 
-//Only '=' operation is supported
+/** Обратный индекс в памяти. Поддерживается только оператор '='. */
 internal class PostingList {
     private val lock: ReentrantReadWriteLock = ReentrantReadWriteLock()
     private val labelRefMap: HashMap<Label, ArrayList<SeriesRef>> = HashMap()
 
+    /**
+     * Отсортированный список всех серий. Аналог allPostings в индексе на диске:
+     * даёт путь для пустого списка матчеров, не сканируя всё подряд.
+     */
+    private val allRefs: ArrayList<SeriesRef> = ArrayList()
+
     fun append(labels: Labels, ref: SeriesRef) {
         lock.writeLock().withLock {
+            insertSorted(allRefs, ref)
             for (label in labels) {
-                val seriesRef = labelRefMap.putIfAbsent(label, arrayListOf(ref))
-
-                if (seriesRef != null) {
-                    var index = seriesRef.binarySearch { x -> x.value.compareTo(ref.value) }
-
-                    if (index < 0) {
-                        index = -(index + 1)
-                        seriesRef.add(index, ref)
-                    }
-                }
+                insertSorted(labelRefMap.getOrPut(label) { ArrayList() }, ref)
             }
         }
     }
 
-    fun query(matcher: List<Matcher>): List<SeriesRef> {
-        val series: ArrayList<List<SeriesRef>> = ArrayList()
-        var shortestListIndex = 0
-        var shortedListEntryCount = Int.MAX_VALUE
-        val result: ArrayList<SeriesRef> = ArrayList()
-
-        val labels = toLabels(matcher)
-
+    fun query(matchers: List<Matcher>): List<SeriesRef> {
         lock.readLock().withLock {
-            for ((index, label) in labels.withIndex()) {
-                if (labelRefMap.containsKey(label)) {
-                    val list = labelRefMap.getValue(label)
-                    series.add(list)
+            if (matchers.isEmpty()) return ArrayList(allRefs)
 
-                    if (list.size < shortedListEntryCount) {
-                        shortestListIndex = index;
-                        shortedListEntryCount = list.size
-                    }
-                } else {
-                    return emptyList()
-                }
+            val lists = ArrayList<List<SeriesRef>>(matchers.size)
+            for (label in toLabels(matchers)) {
+                val list = labelRefMap[label] ?: return emptyList()
+                lists.add(list)
             }
 
-            //Equals matcher-specific
-            val shortestRefList = series[shortestListIndex]
-            for (ref in shortestRefList) {
-                var count = 1
-                for ((index, refList) in series.withIndex()) {
-                    if (index == shortestListIndex)
-                        continue
-
-                    if (refList.binarySearch { x -> x.value.compareTo(ref.value) } >= 0)
-                        count++
+            val shortest = lists.minBy { it.size }
+            val result = ArrayList<SeriesRef>()
+            for (ref in shortest) {
+                val inAll = lists.all { list ->
+                    list === shortest || list.binarySearch { x -> x.value.compareTo(ref.value) } >= 0
                 }
-
-                if (count == series.size)
-                    result.add(ref)
+                if (inAll) result.add(ref)
             }
-
             return result
         }
     }
 
-    companion object {
-        private fun toLabels(matchers: List<Matcher>): Labels {
-            if (matchers.isEmpty()) return Labels(emptyList())
+    private fun insertSorted(list: ArrayList<SeriesRef>, ref: SeriesRef) {
+        val index = list.binarySearch { x -> x.value.compareTo(ref.value) }
+        if (index < 0) list.add(-(index + 1), ref)
+    }
 
-            //Забиваемся на то, что разных типов в одном списке мэтчеров не будет
-            return when (val type = matchers.first()) {
-                is Matcher.Equals -> Labels(matchers.map { x -> x as Matcher.Equals }.map { matcher -> Label(matcher.name, matcher.value) })
-            }
-        }
+    private companion object {
+        fun toLabels(matchers: List<Matcher>): Labels =
+            Labels(matchers.map { it as Matcher.Equals }.map { Label(it.name, it.value) })
     }
 }
