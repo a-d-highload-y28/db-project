@@ -40,6 +40,8 @@ internal class MemoryChunk(stripeSize: Int) {
         postingList.append(labels, ref)
     }
 
+    fun seriesCount(): Int = postingList.query(emptyList()).size
+
     fun delete(matchers: List<Matcher>, range: TimeRange) {
         for (ref in postingList.query(matchers)) {
             tombstones.append(ref, range)
@@ -74,11 +76,25 @@ internal class MemoryChunk(stripeSize: Int) {
         val found = stripe.queryByRefs(refs)
 
         val result = ArrayList<SnapshotSeries>(refs.size)
+        val forgotten = ArrayList<MemorySeries>()
+
         for (ref in refs) {
             val series = found[ref] ?: continue
             val drained = series.drainBelow(upTo)
             if (drained.isNotEmpty()) result.add(SnapshotSeries(series.labels, drained))
+            if (series.isEmptyNow()) forgotten.add(series)
         }
+
+        // Серию без сэмплов Head забывает целиком. Иначе её запись осталась бы
+        // в stripe и в postings навсегда, а drain, drainTombstones и
+        // currentRange обходят их все: стоимость флаша росла бы вместе с
+        // числом серий, которые БД когда-либо видела, и не падала обратно.
+        for (series in forgotten) {
+            stripe.remove(series.labels, series.ref)
+            postingList.remove(series.labels, series.ref)
+            tombstones.remove(series.ref)
+        }
+
         result.sortWith { a, b -> LabelsOrder.compare(a.labels, b.labels) }
         return result
     }
@@ -106,7 +122,10 @@ internal class MemoryChunk(stripeSize: Int) {
         return result
     }
 
-    /** Диапазон того, что осталось в памяти. null, если сэмплов не осталось. */
+    /**
+     * Диапазон того, что осталось в памяти. null, если сэмплов не осталось.
+     * Обходит живые серии, а не все их сэмплы: каждая отдаёт свои границы за O(1).
+     */
     fun currentRange(): TimeRange? {
         val refs = postingList.query(emptyList())
         val found = stripe.queryByRefs(refs)
@@ -114,11 +133,9 @@ internal class MemoryChunk(stripeSize: Int) {
         var min = Long.MAX_VALUE
         var max = Long.MIN_VALUE
         for (ref in refs) {
-            val series = found[ref] ?: continue
-            for (sample in series.query(TimeRange(Long.MIN_VALUE, Long.MAX_VALUE))) {
-                if (sample.timestamp < min) min = sample.timestamp
-                if (sample.timestamp > max) max = sample.timestamp
-            }
+            val range = found[ref]?.currentRange() ?: continue
+            if (range.minTime < min) min = range.minTime
+            if (range.maxTime > max) max = range.maxTime
         }
         return if (min > max) null else TimeRange(min, max)
     }

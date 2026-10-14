@@ -48,6 +48,16 @@ class TombstoneFileCodecTest {
     }
 
     @Test
+    fun `a wrong version is rejected`() {
+        val out = ByteArrayOutputStream()
+        TombstoneFileCodec.write(out, emptyList())
+        val bytes = out.toByteArray()
+        bytes[4] = 99
+
+        assertFailsWith<CorruptBlockException> { TombstoneFileCodec.read(bytes) }
+    }
+
+    @Test
     fun `a wrong magic is rejected`() {
         val out = ByteArrayOutputStream()
         TombstoneFileCodec.write(out, emptyList())

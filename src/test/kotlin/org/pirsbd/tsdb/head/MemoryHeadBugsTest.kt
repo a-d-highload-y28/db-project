@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 private val ALL = TimeRange(0, 1_000)
 private fun cpu() = metric("cpu")
@@ -71,11 +72,16 @@ class MemoryHeadBugsTest {
     }
 
     @Test
-    fun `E range of an empty head is EMPTY and overlaps nothing`() {
+    fun `E an empty head reports EMPTY and never trips TimeRange's own require`() {
         val head = MemoryHead()
 
+        // Прежняя версия этого теста утверждала «не пересекается ни с чем», но
+        // проверяла только диапазон до Long.MAX_VALUE - 1, то есть единственную
+        // границу, при которой это верно. Пустота решается isEmpty, а не
+        // сравнением диапазонов.
         assertEquals(TimeRange.EMPTY, head.range)
-        assertFalse(head.range.overlaps(TimeRange(0, Long.MAX_VALUE - 1)))
+        assertTrue(head.isEmpty)
+        assertFalse(head.select(TimeRange(Long.MIN_VALUE, Long.MAX_VALUE), emptyList()).use { it.next() })
     }
 
     @Test

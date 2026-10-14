@@ -86,6 +86,16 @@ class ChunkFileCodecTest {
     }
 
     @Test
+    fun `a wrong version is rejected`() {
+        val out = ByteArrayOutputStream()
+        val refs = ChunkFileCodec.write(out, listOf(listOf(Sample(10, 1.0))))
+        val bytes = out.toByteArray()
+        bytes[4] = 99
+
+        assertFailsWith<CorruptBlockException> { ChunkFileCodec.read(bytes, refs[0]) }
+    }
+
+    @Test
     fun `a chunk ref packs the file number and the offset`() {
         val ref = ChunkFileCodec.chunkRef(fileNumber = 7, offset = 1234L)
 

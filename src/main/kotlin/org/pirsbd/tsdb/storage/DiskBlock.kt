@@ -18,6 +18,8 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import java.util.TreeMap
 
 /**
@@ -37,6 +39,14 @@ internal class DiskBlock(private val dir: Path) : SeriesSource {
     private val indexBytes: ByteArray = Files.readAllBytes(dir.resolve("index"))
     private val chunkBytes: ByteArray = Files.readAllBytes(dir.resolve("chunks/000001"))
     private val contents: IndexContents = IndexFileCodec.read(indexBytes)
+
+    /**
+     * Лок обязателен: @Volatile делает запись видимой, но не делает
+     * read-modify-write атомарным. Без него два параллельных delete по одному
+     * блоку перезаписывали файл друг поверх друга, и один из них терялся
+     * навсегда, вместе с перезаписанным файлом.
+     */
+    private val tombstoneLock = ReentrantLock()
 
     @Volatile
     private var tombstones: List<Tombstone> =
@@ -75,16 +85,18 @@ internal class DiskBlock(private val dir: Path) : SeriesSource {
      */
     fun addTombstones(new: List<Tombstone>) {
         if (new.isEmpty()) return
-        val merged = tombstones + new
+        tombstoneLock.withLock {
+            val merged = tombstones + new
 
-        val staging = dir.resolve("tombstones.tmp")
-        FileOutputStream(staging.toFile()).use { out ->
-            TombstoneFileCodec.write(out, merged)
-            out.flush()
-            out.fd.sync()
+            val staging = dir.resolve("tombstones.tmp")
+            FileOutputStream(staging.toFile()).use { out ->
+                TombstoneFileCodec.write(out, merged)
+                out.flush()
+                out.fd.sync()
+            }
+            Files.move(staging, dir.resolve("tombstones"), StandardCopyOption.ATOMIC_MOVE)
+            tombstones = merged
         }
-        Files.move(staging, dir.resolve("tombstones"), StandardCopyOption.ATOMIC_MOVE)
-        tombstones = merged
     }
 
     override fun close() = Unit

@@ -12,6 +12,8 @@ import org.pirsbd.tsdb.head.MemoryHead
 import org.pirsbd.tsdb.storage.FileStorage
 import org.pirsbd.tsdb.storage.codec.Tombstone
 import java.nio.file.Path
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.withLock
 
 class DefaultTSDB(
     dir: Path,
@@ -21,20 +23,36 @@ class DefaultTSDB(
     private val head = MemoryHead(config.stripeSize)
     private val storage = FileStorage(dir)
 
+    /**
+     * Один лок на уровне БД поверх flush, delete и выбора источников.
+     *
+     * Он закрывает три вещи сразу. Без него truncate уже убрал сэмплы из Head,
+     * а блок ещё не опубликован, и читатель в этом окне не видит их нигде.
+     * Два параллельных flush перезаписывали список блоков друг поверх друга, и
+     * уже записанный на диск блок пропадал из запросов до рестарта. И delete,
+     * разошедшийся с flush, мог не увидеть блок, в который как раз уехали
+     * удаляемые сэмплы.
+     */
+    private val dbLock = ReentrantReadWriteLock()
+
     override fun appender(): Appender = HeadAppender(head) { maybeAutoFlush() }
 
+    override fun querier(range: TimeRange): Querier = DefaultQuerier(range, sourcesFor(range))
+
     /** Head идёт первым: при равном таймстемпе он должен перебить блок. */
-    override fun querier(range: TimeRange): Querier {
+    internal fun sourcesFor(range: TimeRange): List<SeriesSource> = dbLock.readLock().withLock {
         val sources = ArrayList<SeriesSource>()
-        if (head.range.overlaps(range)) sources.add(head)
+        if (!head.isEmpty && head.range.overlaps(range)) sources.add(head)
         sources.addAll(storage.overlapping(range))
-        return DefaultQuerier(range, sources)
+        sources
     }
 
     override fun delete(range: TimeRange, matchers: List<Matcher>) {
-        head.delete(range, matchers)
-        for (block in storage.overlapping(range)) {
-            block.addTombstones(block.offsetsOf(matchers).map { Tombstone(it, range) })
+        dbLock.writeLock().withLock {
+            head.delete(range, matchers)
+            for (block in storage.overlapping(range)) {
+                block.addTombstones(block.offsetsOf(matchers).map { Tombstone(it, range) })
+            }
         }
     }
 
@@ -55,7 +73,12 @@ class DefaultTSDB(
         source.select(range, matchers).use { it.next() }
 
     override fun flush() {
-        val snapshot = head.truncate(Long.MAX_VALUE) ?: return
+        dbLock.writeLock().withLock { flushLocked(Long.MAX_VALUE) }
+    }
+
+    /** Вызывается только под dbLock.writeLock. */
+    private fun flushLocked(upTo: Long) {
+        val snapshot = head.truncate(upTo) ?: return
         storage.write(snapshot)
     }
 
@@ -64,9 +87,11 @@ class DefaultTSDB(
      * при штатном завершении: при kill -9 несброшенный Head теряется.
      */
     override fun close() {
-        flush()
-        head.close()
-        storage.close()
+        dbLock.writeLock().withLock {
+            flushLocked(Long.MAX_VALUE)
+            head.close()
+            storage.close()
+        }
     }
 
     /**
@@ -78,23 +103,24 @@ class DefaultTSDB(
      * край, если minTime близко к Long.MAX_VALUE.
      */
     private fun maybeAutoFlush() {
-        val range = head.range
-        if (range == TimeRange.EMPTY) return
+        dbLock.writeLock().withLock {
+            if (head.isEmpty) return
 
-        val span = try {
+            val range = head.range
+            val span = try {
             Math.subtractExact(range.maxTime, range.minTime)
-        } catch (overflow: ArithmeticException) {
-            Long.MAX_VALUE
-        }
-        if (span <= config.headWindow) return
+            } catch (overflow: ArithmeticException) {
+                Long.MAX_VALUE
+            }
+            if (span <= config.headWindow) return
 
-        val bound = try {
-            Math.addExact(range.minTime, config.headWindow)
-        } catch (overflow: ArithmeticException) {
-            Long.MAX_VALUE
-        }
+            val bound = try {
+                Math.addExact(range.minTime, config.headWindow)
+            } catch (overflow: ArithmeticException) {
+                Long.MAX_VALUE
+            }
 
-        val snapshot = head.truncate(bound) ?: return
-        storage.write(snapshot)
+            flushLocked(bound)
+        }
     }
 }

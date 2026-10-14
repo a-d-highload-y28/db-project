@@ -34,6 +34,17 @@ class MemoryHead(stripeSize: Int = 16) : Head {
             return if (min > max) TimeRange.EMPTY else TimeRange(min, max)
         }
 
+    /**
+     * Пустота решается числом живых серий, а не сравнением с TimeRange.EMPTY.
+     * EMPTY это (MAX, MAX), то есть неотличимо от настоящего Head с одним
+     * сэмплом на Long.MAX_VALUE: такой Head считался пустым и никогда не
+     * флашился по порогу.
+     */
+    val isEmpty: Boolean get() = liveSeriesCount == 0
+
+    /** Серий, которые Head реально держит в памяти. */
+    val liveSeriesCount: Int get() = chunk.seriesCount()
+
     override fun append(labels: Labels, timestamp: Long, value: Double) {
         lock.readLock().withLock {
             check(!isClosed) { "head is closed" }
@@ -60,10 +71,12 @@ class MemoryHead(stripeSize: Int = 16) : Head {
      */
     override fun truncate(upTo: Long): HeadSnapshot? {
         lock.writeLock().withLock {
+            // Маркеры собираются ДО drain: drain забывает полностью вычерпанные
+            // серии вместе с их маркерами, и после него собирать уже нечего.
+            val tombstones = chunk.drainTombstones()
+
             val series = chunk.drain(upTo)
             if (series.isEmpty()) return null
-
-            val tombstones = chunk.drainTombstones()
 
             val remaining = chunk.currentRange()
             minTime.store(remaining?.minTime ?: Long.MAX_VALUE)

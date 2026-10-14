@@ -34,18 +34,35 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
      */
     fun append(timestamp: Long, value: Double) {
         lock.writeLock().withLock {
-            when {
-                timestamp == latestTimestamp && inOrderSeries.count() > 0 ->
-                    inOrderSeries.replaceLast(timestamp, value)
-
-                timestamp > latestTimestamp -> {
-                    inOrderSeries.insert(timestamp, value)
-                    latestTimestamp = timestamp
-                }
-
-                else -> addOutOfOrder(timestamp, value)
+            if (timestamp > latestTimestamp) {
+                inOrderSeries.insert(timestamp, value)
+                latestTimestamp = timestamp
+                return
             }
+
+            // Дубликат надо искать в обоих буферах. Раньше проверялся только
+            // последний in-order сэмпл, поэтому повтор таймстемпа, который уже
+            // лежит в середине in-order буфера, уезжал в out-of-order список и
+            // при чтении вылезал второй точкой на том же таймстемпе.
+            val inOrder = inOrderSeries.indexOf(timestamp)
+            if (inOrder >= 0) {
+                inOrderSeries.replaceAt(inOrder, timestamp, value)
+                return
+            }
+
+            addOutOfOrder(timestamp, value)
         }
+    }
+
+    /** Диапазон того, что серия держит сейчас. O(1), без обхода сэмплов. */
+    fun currentRange(): TimeRange? = lock.readLock().withLock {
+        val mins = listOfNotNull(inOrderSeries.firstTimestamp(), outOfOrderSeries.firstOrNull()?.timestamp)
+        val maxs = listOfNotNull(inOrderSeries.lastTimestamp(), outOfOrderSeries.lastOrNull()?.timestamp)
+        if (mins.isEmpty()) null else TimeRange(mins.min(), maxs.max())
+    }
+
+    fun isEmptyNow(): Boolean = lock.readLock().withLock {
+        inOrderSeries.count() == 0 && outOfOrderSeries.isEmpty()
     }
 
     fun query(range: TimeRange): ArrayList<Sample> = lock.readLock().withLock { queryLocked(range) }

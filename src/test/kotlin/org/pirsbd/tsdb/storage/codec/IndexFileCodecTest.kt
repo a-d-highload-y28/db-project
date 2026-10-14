@@ -113,6 +113,14 @@ class IndexFileCodecTest {
     }
 
     @Test
+    fun `a wrong version is rejected`() {
+        val bytes = encode(listOf(IndexSeries(metric("cpu"), chunk(10, 20))))
+        bytes[4] = 99
+
+        assertFailsWith<CorruptBlockException> { IndexFileCodec.read(bytes) }
+    }
+
+    @Test
     fun `a file shorter than the toc is rejected`() {
         val bytes = encode(listOf(IndexSeries(metric("cpu"), chunk(10, 20))))
 

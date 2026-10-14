@@ -12,9 +12,6 @@ import java.util.TreeMap
 
 /** Источник из заранее заданных серий. Считает, сколько раз его опрашивали. */
 class FakeSeriesSource(series: Map<Labels, List<Sample>>) : SeriesSource {
-    var selectCalls: Int = 0
-        private set
-
     private val data = TreeMap<Labels, List<Sample>>(LabelsOrder.COMPARATOR).also { it.putAll(series) }
 
     override val range: TimeRange
@@ -25,7 +22,6 @@ class FakeSeriesSource(series: Map<Labels, List<Sample>>) : SeriesSource {
         }
 
     override fun select(range: TimeRange, matchers: List<Matcher>): SeriesSet {
-        selectCalls += 1
         val filtered = TreeMap<Labels, List<Sample>>(LabelsOrder.COMPARATOR)
         for ((labels, samples) in data) {
             if (matchers.any { m -> labels.get(m.name) != (m as Matcher.Equals).value }) continue

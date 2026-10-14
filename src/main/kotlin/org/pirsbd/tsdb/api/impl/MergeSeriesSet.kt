@@ -37,15 +37,15 @@ internal class MergeSeriesSet(sources: List<SeriesSet>) : SeriesSet {
             if (LabelsOrder.compare(labels, min) < 0) min = labels
         }
 
-        val iterators = ArrayList<SeriesIterator>()
+        val matched = ArrayList<Series>()
         for (source in live) {
             if (LabelsOrder.compare(source.at().labels, min) == 0) {
-                iterators.add(source.at().iterator())
+                matched.add(source.at())
                 pending.add(source)
             }
         }
 
-        current = MergedSeries(min, iterators)
+        current = MergedSeries(min, matched)
         return true
     }
 
@@ -72,10 +72,16 @@ internal class MergeSeriesSet(sources: List<SeriesSet>) : SeriesSet {
         pending.clear()
     }
 
+    /**
+     * Держит сами Series, а не их итераторы. Если бы держал итераторы, второй
+     * вызов iterator() вернул бы уже вычерпанные и закрытые, то есть пустую
+     * серию. Это ровно баг C из ревью PR #7, только на уровень выше.
+     */
     private class MergedSeries(
         override val labels: Labels,
-        private val iterators: List<SeriesIterator>,
+        private val sources: List<Series>,
     ) : Series {
-        override fun iterator(): SeriesIterator = MergeSeriesIterator(iterators)
+        override fun iterator(): SeriesIterator =
+            MergeSeriesIterator(sources.map { it.iterator() })
     }
 }

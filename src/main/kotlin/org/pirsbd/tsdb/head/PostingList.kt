@@ -49,6 +49,23 @@ internal class PostingList {
         }
     }
 
+    /** Убирает серию из индекса целиком. Вызывается, когда Head её забывает. */
+    fun remove(labels: Labels, ref: SeriesRef) {
+        lock.writeLock().withLock {
+            removeSorted(allRefs, ref)
+            for (label in labels) {
+                val refs = labelRefMap[label] ?: continue
+                removeSorted(refs, ref)
+                if (refs.isEmpty()) labelRefMap.remove(label)
+            }
+        }
+    }
+
+    private fun removeSorted(list: ArrayList<SeriesRef>, ref: SeriesRef) {
+        val index = list.binarySearch { x -> x.value.compareTo(ref.value) }
+        if (index >= 0) list.removeAt(index)
+    }
+
     private fun insertSorted(list: ArrayList<SeriesRef>, ref: SeriesRef) {
         val index = list.binarySearch { x -> x.value.compareTo(ref.value) }
         if (index < 0) list.add(-(index + 1), ref)

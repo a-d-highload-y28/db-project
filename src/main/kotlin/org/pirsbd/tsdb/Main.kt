@@ -11,7 +11,7 @@ import java.nio.file.Path
 import kotlin.io.path.Path
 import kotlin.io.path.listDirectoryEntries
 
-private val ALL = TimeRange(0, Long.MAX_VALUE - 1)
+private val ALL = TimeRange(Long.MIN_VALUE, Long.MAX_VALUE)
 
 private fun metric(name: String, vararg pairs: Pair<String, String>): Labels =
     Labels((listOf(Label(Labels.METRIC_NAME, name)) + pairs.map { Label(it.first, it.second) }).sorted())
