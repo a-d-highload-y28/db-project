@@ -56,7 +56,11 @@ internal class MemoryChunk(stripeSize: Int) {
 
         for (ref in refs) {
             val series = found[ref] ?: continue
-            result[series.labels] = mergeRef(series.query(range), deleted[ref] ?: emptyList())
+            val samples = mergeRef(series.query(range), deleted[ref] ?: emptyList())
+            // Серия без сэмплов в диапазоне не попадает в результат вовсе.
+            // Иначе запрос вернул бы пустую серию, а не её отсутствие, и
+            // серия, целиком накрытая tombstone, продолжала бы светиться.
+            if (samples.isNotEmpty()) result[series.labels] = samples
         }
         return result
     }
