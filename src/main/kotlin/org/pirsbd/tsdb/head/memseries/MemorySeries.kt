@@ -15,10 +15,7 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
 
     private val encoding: ChunkEncoding = ChunkEncoding.RAW //TODO: strategies.
 
-    private val inOrderSeries: InOrderSeries = when (encoding) {
-        ChunkEncoding.RAW -> RawInOrderSeries()
-        ChunkEncoding.XOR -> throw NotImplementedError("TODO: implement if needed")
-    }
+    private var inOrderSeries: InOrderSeries = newInOrderSeries()
 
     private var latestTimestamp: Long = Long.MIN_VALUE
 
@@ -51,47 +48,79 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
         }
     }
 
-    fun query(range: TimeRange): ArrayList<Sample> {
-        lock.readLock().withLock {
-            val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count().toInt() + outOfOrderSeries.size)
+    fun query(range: TimeRange): ArrayList<Sample> = lock.readLock().withLock { queryLocked(range) }
 
-            var outOfOrderPos = kostylOutOfOrderBinLeftSearch(-1, outOfOrderSeries.size, range.minTime)
+    /**
+     * Отдаёт сэмплы строго меньше upTo и убирает их из серии.
+     * Остаток перекладывается в свежий буфер: RawInOrderSeries умеет только
+     * дописывать в конец, вырезать из середины он не умеет.
+     */
+    fun drainBelow(upTo: Long): List<Sample> {
+        lock.writeLock().withLock {
+            val all = queryLocked(TimeRange(Long.MIN_VALUE, Long.MAX_VALUE))
+            if (all.isEmpty()) return emptyList()
 
-            val inOrderIterator = inOrderSeries.iterator()
+            val drained = ArrayList<Sample>()
+            val kept = ArrayList<Sample>()
+            for (sample in all) {
+                if (sample.timestamp < upTo) drained.add(sample) else kept.add(sample)
+            }
+            if (drained.isEmpty()) return emptyList()
 
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp < range.minTime) {
+            val fresh = newInOrderSeries()
+            for (sample in kept) fresh.insert(sample.timestamp, sample.value)
+            inOrderSeries = fresh
+            outOfOrderSeries.clear()
+            latestTimestamp = if (kept.isEmpty()) Long.MIN_VALUE else kept.last().timestamp
+
+            return drained
+        }
+    }
+
+    private fun newInOrderSeries(): InOrderSeries = when (encoding) {
+        ChunkEncoding.RAW -> RawInOrderSeries()
+        ChunkEncoding.XOR -> throw NotImplementedError("TODO: implement if needed")
+    }
+
+    private fun queryLocked(range: TimeRange): ArrayList<Sample> {
+        val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count().toInt() + outOfOrderSeries.size)
+
+        var outOfOrderPos = kostylOutOfOrderBinLeftSearch(-1, outOfOrderSeries.size, range.minTime)
+
+        val inOrderIterator = inOrderSeries.iterator()
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp < range.minTime) {
+            inOrderIterator.next()
+        }
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime && outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
+            val inOrderMetric = inOrderIterator.peek()
+            val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
+
+            if (inOrderMetric.timestamp <= outOfOrderMetric.timestamp) {
+                accum.add(inOrderMetric)
                 inOrderIterator.next()
-            }
-
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime && outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
-                val inOrderMetric = inOrderIterator.peek()
-                val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
-
-                if (inOrderMetric.timestamp <= outOfOrderMetric.timestamp) {
-                    accum.add(inOrderMetric)
-                    inOrderIterator.next()
-                } else {
-                    accum.add(outOfOrderMetric)
-                    outOfOrderPos += 1
-                }
-            }
-
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime) {
-                val sample = inOrderIterator.peek()
-                inOrderIterator.next()
-
-                accum.add(sample)
-            }
-
-            while (outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
-                val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
-
+            } else {
                 accum.add(outOfOrderMetric)
                 outOfOrderPos += 1
             }
-
-            return accum
         }
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime) {
+            val sample = inOrderIterator.peek()
+            inOrderIterator.next()
+
+            accum.add(sample)
+        }
+
+        while (outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
+            val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
+
+            accum.add(outOfOrderMetric)
+            outOfOrderPos += 1
+        }
+
+        return accum
     }
 
 

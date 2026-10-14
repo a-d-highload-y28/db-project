@@ -61,6 +61,64 @@ internal class MemoryChunk(stripeSize: Int) {
         return result
     }
 
+    /**
+     * Отдаёт серии с сэмплами строго меньше upTo и убирает их из памяти.
+     * Серии в порядке Labels: это контракт HeadSnapshot.
+     */
+    fun drain(upTo: Long): List<SnapshotSeries> {
+        val refs = postingList.query(emptyList())
+        val found = stripe.queryByRefs(refs)
+
+        val result = ArrayList<SnapshotSeries>(refs.size)
+        for (ref in refs) {
+            val series = found[ref] ?: continue
+            val drained = series.drainBelow(upTo)
+            if (drained.isNotEmpty()) result.add(SnapshotSeries(series.labels, drained))
+        }
+        result.sortWith { a, b -> LabelsOrder.compare(a.labels, b.labels) }
+        return result
+    }
+
+    /**
+     * Маркеры удаления в терминах Labels, для писателя блока.
+     *
+     * Head их не теряет: если у серии остались свежие сэмплы, маркер обязан
+     * продолжать действовать и в памяти. Поэтому это копия, а не изъятие.
+     * Один и тот же маркер может попасть в два блока, это безвредно: каждый
+     * блок фильтрует только свои серии.
+     */
+    fun drainTombstones(): List<SnapshotTombstone> {
+        val refs = postingList.query(emptyList())
+        val found = stripe.queryByRefs(refs)
+        val byRef = tombstones.query(refs)
+
+        val result = ArrayList<SnapshotTombstone>()
+        for (ref in refs) {
+            val series = found[ref] ?: continue
+            for (range in byRef[ref] ?: emptyList()) {
+                result.add(SnapshotTombstone(series.labels, range))
+            }
+        }
+        return result
+    }
+
+    /** Диапазон того, что осталось в памяти. null, если сэмплов не осталось. */
+    fun currentRange(): TimeRange? {
+        val refs = postingList.query(emptyList())
+        val found = stripe.queryByRefs(refs)
+
+        var min = Long.MAX_VALUE
+        var max = Long.MIN_VALUE
+        for (ref in refs) {
+            val series = found[ref] ?: continue
+            for (sample in series.query(TimeRange(Long.MIN_VALUE, Long.MAX_VALUE))) {
+                if (sample.timestamp < min) min = sample.timestamp
+                if (sample.timestamp > max) max = sample.timestamp
+            }
+        }
+        return if (min > max) null else TimeRange(min, max)
+    }
+
     private fun mergeRef(samples: List<Sample>, tombstones: List<TimeRange>): List<Sample> {
         if (samples.isEmpty()) return emptyList()
         if (tombstones.isEmpty()) return samples

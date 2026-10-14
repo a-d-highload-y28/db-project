@@ -54,6 +54,25 @@ class MemoryHead(stripeSize: Int = 16) : Head {
         }
     }
 
+    /**
+     * Идёт под writeLock, поэтому записи на время флаша блокируются. Для MVP
+     * это приемлемое упрощение, в Prometheus сделано тоньше.
+     */
+    override fun truncate(upTo: Long): HeadSnapshot? {
+        lock.writeLock().withLock {
+            val series = chunk.drain(upTo)
+            if (series.isEmpty()) return null
+
+            val tombstones = chunk.drainTombstones()
+
+            val remaining = chunk.currentRange()
+            minTime.store(remaining?.minTime ?: Long.MAX_VALUE)
+            maxTime.store(remaining?.maxTime ?: Long.MIN_VALUE)
+
+            return MaterializedSnapshot(series, tombstones)
+        }
+    }
+
     override fun close() {
         lock.writeLock().withLock { isClosed = true }
     }
