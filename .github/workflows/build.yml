@@ -5,10 +5,15 @@ on:
     branches: [master]
   pull_request:
 
-# Новый пуш в ту же ветку отменяет предыдущий прогон: ждать устаревший смысла нет.
+# Новый пуш в ту же ветку отменяет предыдущий прогон PR: ждать устаревший
+# смысла нет. Прогоны master не отменяются: там каждый коммит хочется видеть
+# проверенным отдельно.
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -30,11 +35,11 @@ jobs:
         uses: gradle/actions/setup-gradle@v5
 
       - name: Build and test
-        run: ./gradlew build --no-daemon --console=plain
+        run: ./gradlew build --console=plain
 
       # Демо это часть сдачи лабы, поэтому оно не должно сгнить незаметно.
       - name: Run the demo scenario
-        run: ./gradlew run --no-daemon --console=plain
+        run: ./gradlew run --console=plain
 
       - name: Upload the test report when something fails
         if: failure()

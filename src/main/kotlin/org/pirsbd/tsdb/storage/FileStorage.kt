@@ -60,13 +60,16 @@ internal class FileStorage(private val dir: Path) : AutoCloseable {
     /**
      * Блок это папка с meta.json. Папка без него нашей не является:
      * lost+found рядом с данными не должен ронять старт сырым
-     * NoSuchFileException. Битый meta.json или индекс, наоборот, падают
-     * громко: молча пропустить блок значит потерять данные молча.
+     * NoSuchFileException.
+     *
+     * Проверка именно на существование, а не на читаемость: meta.json без
+     * прав на чтение это наш блок, который мы не можем прочитать, и пропустить
+     * его молча значит молча потерять данные. Пусть падает.
      */
     private fun openAll(): List<DiskBlock> =
         Files.list(dir).use { stream ->
             stream.filter { it.isDirectory() }.toList()
-                .filter { Files.isReadable(it.resolve("meta.json")) }
+                .filter { Files.exists(it.resolve("meta.json")) }
                 .map { DiskBlock(it) }
                 .sortedBy { it.meta.range.minTime }
         }

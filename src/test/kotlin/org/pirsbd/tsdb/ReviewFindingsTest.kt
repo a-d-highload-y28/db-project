@@ -40,8 +40,9 @@ class ReviewFindingsTest {
                 }
             }
         }
-        latch.await(60, TimeUnit.SECONDS)
+        val finished = latch.await(60, TimeUnit.SECONDS)
         pool.shutdown()
+        assertTrue(finished, "writers timed out; the assertions below would compare half-written data")
         failure.get()?.let { throw it }
     }
 
@@ -150,6 +151,79 @@ class ReviewFindingsTest {
                     assertEquals(first, second, "a Series must be re-iterable")
                 }
             }
+        }
+    }
+
+    /**
+     * Второе ревью. Источники выбирались в querier(), а select() потом
+     * спрашивал устаревший список без лока. Флаш между этими двумя вызовами
+     * уносил сэмплы из Head в новый блок, которого в списке нет, и запрос
+     * возвращал пустоту для данных, лежащих на диске.
+     *
+     * Детерминированно, в один поток, и ни один из 112 тестов это не видел.
+     */
+    @Test
+    fun `a flush between opening a querier and selecting does not hide data`() {
+        DefaultTSDB(tempDir()).use { db ->
+            db.appender().use { a -> a.add(metric("cpu"), 10, 1.0); a.commit() }
+
+            val querier = db.querier(FULL)
+            db.flush()
+
+            val got = querier.use { drain(it.select(CPU)) }
+
+            assertEquals(1, got.size, "committed and fsynced data must not vanish from a read")
+            assertEquals(listOf(Sample(10, 1.0)), got[0].second)
+        }
+    }
+
+    /** Та же дыра в обратную сторону: блок уже был, флаш добавил второй. */
+    @Test
+    fun `a flush between opening a querier and selecting does not hide the new block`() {
+        DefaultTSDB(tempDir()).use { db ->
+            db.appender().use { a -> a.add(metric("cpu"), 10, 1.0); a.commit() }
+            db.flush()
+            db.appender().use { a -> a.add(metric("cpu"), 20, 2.0); a.commit() }
+
+            val querier = db.querier(FULL)
+            db.flush()
+
+            val got = querier.use { drain(it.select(CPU)) }
+
+            assertEquals(listOf(Sample(10, 1.0), Sample(20, 2.0)), got[0].second)
+        }
+    }
+
+    /** Important 4: повторный delete не должен раздувать файл маркеров. */
+    @Test
+    fun `repeated identical deletes do not grow the block tombstones without bound`() {
+        val dir = tempDir()
+        DefaultTSDB(dir).use { db ->
+            db.appender().use { a ->
+                for (t in 1L..5L) a.add(metric("cpu"), t, t.toDouble())
+                a.commit()
+            }
+            db.flush()
+
+            repeat(50) { db.delete(TimeRange(2, 3), CPU) }
+        }
+
+        val block = Files.list(dir).use { s -> s.filter { Files.isDirectory(it) }.toList() }.single()
+        val size = Files.size(block.resolve("tombstones"))
+
+        // magic 4 + version 1 + count 4 + одна запись 24 + crc 4 = 37 байт
+        assertTrue(size <= 64, "50 identical deletes should coalesce, got $size bytes")
+    }
+
+    /** Important 3: пометка источника тоже обязана читать под локом. */
+    @Test
+    fun `source tags stay correct while a flush runs`() {
+        DefaultTSDB(tempDir()).use { db ->
+            db.appender().use { a -> a.add(metric("cpu"), 10, 1.0); a.commit() }
+
+            assertEquals(listOf("HEAD"), db.sourceTagsOf(metric("cpu"), FULL))
+            db.flush()
+            assertEquals(listOf("BLOCK"), db.sourceTagsOf(metric("cpu"), FULL))
         }
     }
 

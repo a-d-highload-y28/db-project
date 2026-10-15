@@ -96,8 +96,7 @@ class FileStorageTest {
     fun `a block with meta json but a corrupt index still fails loudly`() {
         val dir = tempDir()
         FileStorage(dir).use { it.write(snapshotAt(10, 20)) }
-        dir.listDirectoryEntries().single { it.fileName.toString() != "lost+found" }
-            .resolve("index").writeText("too short")
+        dir.listDirectoryEntries().single().resolve("index").writeText("too short")
 
         assertFailsWith<CorruptBlockException> { FileStorage(dir).use { it.blocks() } }
     }

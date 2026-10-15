@@ -4,6 +4,7 @@ import org.pirsbd.tsdb.api.Appender
 import org.pirsbd.tsdb.api.Labels
 import org.pirsbd.tsdb.api.Matcher
 import org.pirsbd.tsdb.api.Querier
+import org.pirsbd.tsdb.api.SeriesSet
 import org.pirsbd.tsdb.api.SeriesSource
 import org.pirsbd.tsdb.api.TSDB
 import org.pirsbd.tsdb.api.TSDBConfig
@@ -37,7 +38,20 @@ class DefaultTSDB(
 
     override fun appender(): Appender = HeadAppender(head) { maybeAutoFlush() }
 
-    override fun querier(range: TimeRange): Querier = DefaultQuerier(range, sourcesFor(range))
+    override fun querier(range: TimeRange): Querier = DefaultQuerier(range, ::selectAtomically)
+
+    /**
+     * Выбор источников и снятие с них данных идут под одним читательским
+     * локом. Разорвать эти два шага нельзя: флаш между ними уносит сэмплы из
+     * Head в блок, которого в списке ещё нет.
+     *
+     * Оба источника материализуют свои сэмплы внутри select, поэтому к моменту
+     * выхода из лока результат уже снимок и MVCC не нужен.
+     */
+    private fun selectAtomically(range: TimeRange, matchers: List<Matcher>): SeriesSet =
+        dbLock.readLock().withLock {
+            MergeSeriesSet(sourcesFor(range).map { it.select(range, matchers) })
+        }
 
     /** Head идёт первым: при равном таймстемпе он должен перебить блок. */
     internal fun sourcesFor(range: TimeRange): List<SeriesSource> = dbLock.readLock().withLock {
@@ -48,11 +62,19 @@ class DefaultTSDB(
     }
 
     override fun delete(range: TimeRange, matchers: List<Matcher>) {
-        dbLock.writeLock().withLock {
+        val blocks = dbLock.readLock().withLock {
             head.delete(range, matchers)
-            for (block in storage.overlapping(range)) {
-                block.addTombstones(block.offsetsOf(matchers).map { Tombstone(it, range) })
-            }
+            storage.overlapping(range)
+        }
+
+        // Запись маркеров идёт вне dbLock: каждый блок защищён своим
+        // tombstoneLock, а fsync по каждому блоку под глобальным локом
+        // останавливал бы всех писателей, которым он нужен для автофлаша.
+        //
+        // Гонку с флашем это не открывает: маркер уже лежит в Head, а флаш
+        // переносит маркеры Head в новый блок.
+        for (block in blocks) {
+            block.addTombstones(block.offsetsOf(matchers).map { Tombstone(it, range) })
         }
     }
 
@@ -61,13 +83,14 @@ class DefaultTSDB(
      * HEAD, BLOCK или оба. Без этой пометки на защите невозможно показать,
      * что merge действительно работает, а не что всё лежит в памяти.
      */
-    internal fun sourceTagsOf(labels: Labels, range: TimeRange): List<String> {
-        val matchers = labels.map { Matcher.Equals(it.name, it.value) }
-        val tags = ArrayList<String>(2)
-        if (hasAny(head, range, matchers)) tags.add("HEAD")
-        if (storage.overlapping(range).any { hasAny(it, range, matchers) }) tags.add("BLOCK")
-        return tags
-    }
+    internal fun sourceTagsOf(labels: Labels, range: TimeRange): List<String> =
+        dbLock.readLock().withLock {
+            val matchers = labels.map { Matcher.Equals(it.name, it.value) }
+            val tags = ArrayList<String>(2)
+            if (hasAny(head, range, matchers)) tags.add("HEAD")
+            if (storage.overlapping(range).any { hasAny(it, range, matchers) }) tags.add("BLOCK")
+            tags
+        }
 
     private fun hasAny(source: SeriesSource, range: TimeRange, matchers: List<Matcher>): Boolean =
         source.select(range, matchers).use { it.next() }

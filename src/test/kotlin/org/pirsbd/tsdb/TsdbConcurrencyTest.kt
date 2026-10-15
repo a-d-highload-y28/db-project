@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 private val ALL = TimeRange(0, Long.MAX_VALUE - 1)
 
@@ -136,8 +137,9 @@ class TsdbConcurrencyTest {
                 }
             }
         }
-        latch.await(60, TimeUnit.SECONDS)
+        val finished = latch.await(60, TimeUnit.SECONDS)
         pool.shutdown()
+        assertTrue(finished, "writers timed out; the assertions below would compare half-written data")
         failure.get()?.let { throw it }
     }
 }

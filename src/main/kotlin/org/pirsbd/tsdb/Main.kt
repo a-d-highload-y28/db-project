@@ -8,6 +8,7 @@ import org.pirsbd.tsdb.api.TimeRange
 import org.pirsbd.tsdb.api.impl.DefaultTSDB
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Comparator
 import kotlin.io.path.Path
 import kotlin.io.path.listDirectoryEntries
 
@@ -20,6 +21,16 @@ private fun Labels.render(): String = joinToString(",") { "${it.name}=${it.value
 
 fun main() {
     val dir = Path("demo-data")
+
+    // Сценарий рассказывает историю по шагам, поэтому он обязан начинаться с
+    // пустого каталога. На втором прогоне поверх старых данных шаг [3] уже
+    // печатал [HEAD+BLOCK], то есть результат шага [8], и демо перестало
+    // показывать то, ради чего существует.
+    if (Files.exists(dir)) {
+        Files.walk(dir).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { Files.delete(it) }
+        }
+    }
     // SIGTERM (Ctrl+C) перехватывается, и Head успевает сброситься.
     // SIGKILL нет: там несброшенный Head теряется, WAL отложен на лабу 4.
     val output = StringBuilder()

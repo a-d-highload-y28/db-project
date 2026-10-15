@@ -76,6 +76,10 @@ internal class DiskBlock(private val dir: Path) : SeriesSource {
         return SortedMapSeriesSet(result)
     }
 
+    /** Сколько маркеров держит серия. Нужно тесту на лок. */
+    internal fun tombstoneCountFor(seriesOffset: Int): Int =
+        tombstones.count { it.seriesOffset == seriesOffset }
+
     /** Оффсеты серий, подходящих под матчеры. Нужны delete, чтобы собрать маркеры. */
     fun offsetsOf(matchers: List<Matcher>): List<Int> = contents.lookup(matchers)
 
@@ -86,7 +90,7 @@ internal class DiskBlock(private val dir: Path) : SeriesSource {
     fun addTombstones(new: List<Tombstone>) {
         if (new.isEmpty()) return
         tombstoneLock.withLock {
-            val merged = tombstones + new
+            val merged = coalesce(tombstones + new)
 
             val staging = dir.resolve("tombstones.tmp")
             FileOutputStream(staging.toFile()).use { out ->
@@ -100,4 +104,32 @@ internal class DiskBlock(private val dir: Path) : SeriesSource {
     }
 
     override fun close() = Unit
+
+    private companion object {
+        /**
+         * Склеивает пересекающиеся диапазоны внутри каждой серии.
+         *
+         * Без этого повторный delete того же диапазона дописывал ещё одну
+         * запись: 50 одинаковых удалений давали 50 записей и файл на 1213
+         * байт вместо 37, и каждое чтение потом проверяло сэмпл против всех
+         * 50 диапазонов. В Head то же самое давно делает head/Tombstones.
+         */
+        fun coalesce(all: List<Tombstone>): List<Tombstone> =
+            all.groupBy { it.seriesOffset }
+                .toSortedMap()
+                .flatMap { (offset, group) ->
+                    val merged = ArrayList<TimeRange>(group.size)
+                    for (range in group.map { it.range }.sortedBy { it.minTime }) {
+                        val last = merged.lastOrNull()
+                        if (last != null && range.minTime <= last.maxTime) {
+                            if (range.maxTime > last.maxTime) {
+                                merged[merged.size - 1] = TimeRange(last.minTime, range.maxTime)
+                            }
+                        } else {
+                            merged.add(range)
+                        }
+                    }
+                    merged.map { Tombstone(offset, it) }
+                }
+    }
 }

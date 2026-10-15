@@ -9,6 +9,9 @@ import org.pirsbd.tsdb.head.SnapshotSeries
 import org.pirsbd.tsdb.head.SnapshotTombstone
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
 import kotlin.test.Test
@@ -129,6 +132,44 @@ class DiskBlockTest {
             val got = drain(reopened.select(ALL, emptyList()))
 
             assertEquals(listOf(Sample(20, 2.0)), got[0].second)
+        }
+    }
+
+    /**
+     * Бьёт addTombstones напрямую. Через DefaultTSDB.delete этот лок уже не
+     * проверить: там потоки сериализуются локом БД и до гонки не доходят.
+     */
+    @Test
+    fun `concurrent addTombstones calls do not overwrite each other`() {
+        val dir = tempDir()
+        FileBlockWriter(dir).write(snapshot()).use { block ->
+            val offset = block.offsetsOf(listOf(Matcher.Equals("host", "a"))).single()
+            val threads = 8
+            val pool = Executors.newFixedThreadPool(threads)
+            val latch = CountDownLatch(threads)
+
+            for (t in 0 until threads) {
+                pool.submit {
+                    try {
+                        val from = t * 100L
+                        block.addTombstones(
+                            listOf(org.pirsbd.tsdb.storage.codec.Tombstone(offset, TimeRange(from, from + 10))),
+                        )
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+            }
+            assertTrue(latch.await(30, TimeUnit.SECONDS), "threads timed out")
+            pool.shutdown()
+
+            val reopened = DiskBlock(dir.listDirectoryEntries().single())
+            val ranges = reopened.offsetsOf(listOf(Matcher.Equals("host", "a")))
+            assertEquals(1, ranges.size)
+            // Каждый из 8 потоков записал свой непересекающийся диапазон.
+            // Если лок не работает, часть записей теряется.
+            assertEquals(threads, reopened.tombstoneCountFor(offset))
+            reopened.close()
         }
     }
 
