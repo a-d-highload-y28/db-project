@@ -65,6 +65,15 @@ internal class Stripe(size: Int) {
         return accum
     }
 
+    /** Убирает серию из обеих мап. Вызывается, когда Head её забывает. */
+    fun remove(labels: Labels, ref: SeriesRef) {
+        val labelCell = shards[getIndexByLabels(labels)]
+        labelCell.lock.writeLock().withLock { labelCell.labelHashMap.remove(labels) }
+
+        val refCell = shards[getIndexByRef(ref)]
+        refCell.lock.writeLock().withLock { refCell.refMap.remove(ref) }
+    }
+
     private fun getIndexByRef(ref: SeriesRef): Int {
         return Math.floorMod(hash(ref), shards.size)
     }

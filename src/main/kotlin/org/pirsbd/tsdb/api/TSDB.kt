@@ -17,4 +17,12 @@ interface TSDB : AutoCloseable {
     fun appender(): Appender
     fun querier(range: TimeRange): Querier
     fun delete(range: TimeRange, matchers: List<Matcher>)
+
+    /**
+     * Сбрасывает Head в блок на диске.
+     *
+     * Публичный, потому что иначе «ручной флаш» из спеки недоступен снаружи,
+     * а тестам и демо он нужен, чтобы флаш был детерминированным.
+     */
+    fun flush()
 }

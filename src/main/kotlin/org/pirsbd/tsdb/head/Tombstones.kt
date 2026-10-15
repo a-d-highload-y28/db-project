@@ -47,6 +47,11 @@ internal class Tombstones {
         }
     }
 
+    /** Убирает маркеры серии, которую Head забыл. */
+    fun remove(ref: SeriesRef) {
+        lock.writeLock().withLock { tombstones.remove(ref) }
+    }
+
     private fun kostylLowerBoundEndRangeSearch(
         left: Int,
         right: Int,

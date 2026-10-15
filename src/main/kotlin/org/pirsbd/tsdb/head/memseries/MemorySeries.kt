@@ -15,10 +15,7 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
 
     private val encoding: ChunkEncoding = ChunkEncoding.RAW //TODO: strategies.
 
-    private val inOrderSeries: InOrderSeries = when (encoding) {
-        ChunkEncoding.RAW -> RawInOrderSeries()
-        ChunkEncoding.XOR -> throw NotImplementedError("TODO: implement if needed")
-    }
+    private var inOrderSeries: InOrderSeries = newInOrderSeries()
 
     private var latestTimestamp: Long = Long.MIN_VALUE
 
@@ -30,58 +27,117 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
     val outOfOrderMemorySeries: List<Sample>
         get() = outOfOrderSeries
 
+    /**
+     * Дубликат пары (серия, timestamp) перезаписывается: последний выигрывает.
+     * Это делает запись идемпотентной, что нужно для ретраев в лабе 3 и для
+     * переигрывания на реплике в лабе 4.
+     */
     fun append(timestamp: Long, value: Double) {
         lock.writeLock().withLock {
-            if (timestamp >= latestTimestamp) {
+            if (timestamp > latestTimestamp) {
                 inOrderSeries.insert(timestamp, value)
-                latestTimestamp = timestamp;
-            } else {
-                addOutOfOrder(timestamp, value)
+                latestTimestamp = timestamp
+                return
             }
+
+            // Дубликат надо искать в обоих буферах. Раньше проверялся только
+            // последний in-order сэмпл, поэтому повтор таймстемпа, который уже
+            // лежит в середине in-order буфера, уезжал в out-of-order список и
+            // при чтении вылезал второй точкой на том же таймстемпе.
+            val inOrder = inOrderSeries.indexOf(timestamp)
+            if (inOrder >= 0) {
+                inOrderSeries.replaceAt(inOrder, timestamp, value)
+                return
+            }
+
+            addOutOfOrder(timestamp, value)
         }
     }
 
-    fun query(range: TimeRange): ArrayList<Sample> {
-        lock.readLock().withLock {
-            val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count().toInt() + outOfOrderSeries.size)
+    /** Диапазон того, что серия держит сейчас. O(1), без обхода сэмплов. */
+    fun currentRange(): TimeRange? = lock.readLock().withLock {
+        val mins = listOfNotNull(inOrderSeries.firstTimestamp(), outOfOrderSeries.firstOrNull()?.timestamp)
+        val maxs = listOfNotNull(inOrderSeries.lastTimestamp(), outOfOrderSeries.lastOrNull()?.timestamp)
+        if (mins.isEmpty()) null else TimeRange(mins.min(), maxs.max())
+    }
 
-            var outOfOrderPos = kostylOutOfOrderBinLeftSearch(-1, outOfOrderSeries.size, range.minTime)
+    fun isEmptyNow(): Boolean = lock.readLock().withLock {
+        inOrderSeries.count() == 0 && outOfOrderSeries.isEmpty()
+    }
 
-            val inOrderIterator = inOrderSeries.iterator()
+    fun query(range: TimeRange): ArrayList<Sample> = lock.readLock().withLock { queryLocked(range) }
 
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp < range.minTime) {
+    /**
+     * Отдаёт сэмплы строго меньше upTo и убирает их из серии.
+     * Остаток перекладывается в свежий буфер: RawInOrderSeries умеет только
+     * дописывать в конец, вырезать из середины он не умеет.
+     */
+    fun drainBelow(upTo: Long): List<Sample> {
+        lock.writeLock().withLock {
+            val all = queryLocked(TimeRange(Long.MIN_VALUE, Long.MAX_VALUE))
+            if (all.isEmpty()) return emptyList()
+
+            val drained = ArrayList<Sample>()
+            val kept = ArrayList<Sample>()
+            for (sample in all) {
+                if (sample.timestamp < upTo) drained.add(sample) else kept.add(sample)
+            }
+            if (drained.isEmpty()) return emptyList()
+
+            val fresh = newInOrderSeries()
+            for (sample in kept) fresh.insert(sample.timestamp, sample.value)
+            inOrderSeries = fresh
+            outOfOrderSeries.clear()
+            latestTimestamp = if (kept.isEmpty()) Long.MIN_VALUE else kept.last().timestamp
+
+            return drained
+        }
+    }
+
+    private fun newInOrderSeries(): InOrderSeries = when (encoding) {
+        ChunkEncoding.RAW -> RawInOrderSeries()
+        ChunkEncoding.XOR -> throw NotImplementedError("TODO: implement if needed")
+    }
+
+    private fun queryLocked(range: TimeRange): ArrayList<Sample> {
+        val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count().toInt() + outOfOrderSeries.size)
+
+        var outOfOrderPos = kostylOutOfOrderBinLeftSearch(-1, outOfOrderSeries.size, range.minTime)
+
+        val inOrderIterator = inOrderSeries.iterator()
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp < range.minTime) {
+            inOrderIterator.next()
+        }
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime && outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
+            val inOrderMetric = inOrderIterator.peek()
+            val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
+
+            if (inOrderMetric.timestamp <= outOfOrderMetric.timestamp) {
+                accum.add(inOrderMetric)
                 inOrderIterator.next()
-            }
-
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime && outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
-                val inOrderMetric = inOrderIterator.peek()
-                val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
-
-                if (inOrderMetric.timestamp <= outOfOrderMetric.timestamp) {
-                    accum.add(inOrderMetric)
-                    inOrderIterator.next()
-                } else {
-                    accum.add(outOfOrderMetric)
-                    outOfOrderPos += 1
-                }
-            }
-
-            while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime) {
-                val sample = inOrderIterator.peek()
-                inOrderIterator.next()
-
-                accum.add(sample)
-            }
-
-            while (outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
-                val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
-
+            } else {
                 accum.add(outOfOrderMetric)
                 outOfOrderPos += 1
             }
-
-            return accum
         }
+
+        while (inOrderIterator.hasNext() && inOrderIterator.peek().timestamp <= range.maxTime) {
+            val sample = inOrderIterator.peek()
+            inOrderIterator.next()
+
+            accum.add(sample)
+        }
+
+        while (outOfOrderPos < outOfOrderSeries.size && outOfOrderSeries[outOfOrderPos].timestamp <= range.maxTime) {
+            val outOfOrderMetric = outOfOrderSeries[outOfOrderPos]
+
+            accum.add(outOfOrderMetric)
+            outOfOrderPos += 1
+        }
+
+        return accum
     }
 
 
@@ -105,12 +161,12 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
 
     // O(n)
     private fun addOutOfOrder(timestamp: Long, value: Double) {
-        var insertionPoint = outOfOrderSeries.binarySearch { x -> x.timestamp.compareTo(timestamp) }
+        val found = outOfOrderSeries.binarySearch { x -> x.timestamp.compareTo(timestamp) }
 
-        if (insertionPoint < 0) {
-            insertionPoint = -(insertionPoint + 1)
+        if (found >= 0) {
+            outOfOrderSeries[found] = Sample(timestamp, value)
+        } else {
+            outOfOrderSeries.add(-(found + 1), Sample(timestamp, value))
         }
-
-        outOfOrderSeries.add(insertionPoint, Sample(timestamp, value))
     }
 }
