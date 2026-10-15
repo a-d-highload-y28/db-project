@@ -1,0 +1,93 @@
+digraph DataFlow {
+    rankdir=TB;
+    bgcolor="white";
+    fontname="Inter";
+    node [shape=box, style="filled,rounded", fontname="Inter", fontsize=11,
+          margin="0.22,0.12", penwidth=0, fillcolor="#F3F4F6", color="#6B7280"];
+    edge [fontname="Inter", fontsize=9, color="#9CA3AF", penwidth=1.2];
+    compound=true;
+    nodesep=0.35;
+    ranksep=0.5;
+
+    // ---------- ЗАПИСЬ ----------
+    subgraph cluster_write {
+        label="ЗАПИСЬ";
+        style="filled,rounded";
+        fillcolor="#EFF6FF";
+        color="#3B82F6";
+        fontname="Inter";
+        fontsize=14;
+        labeljust=l;
+        penwidth=1.5;
+
+        w_user  [label="код пользователя", fillcolor="#DBEAFE"];
+        w_add   [label="appender.add(серия, t, значение)\nкладёт в буфер, проверяет __name__"];
+        w_buf   [label="буфер батча\nв памяти, в БД ещё НЕ попало", fillcolor="#FEF3C7"];
+        w_commit[label="commit()\nприменяет весь батч разом"];
+        w_head  [label="MemoryHead\nсерия → её точки", fillcolor="#DCFCE7"];
+
+        w_user -> w_add -> w_buf -> w_commit -> w_head;
+    }
+
+    // ---------- СБРОС ----------
+    subgraph cluster_flush {
+        label="СБРОС НА ДИСК (отдельное событие, НЕ на commit)";
+        style="filled,rounded";
+        fillcolor="#FFF7ED";
+        color="#F97316";
+        fontname="Inter";
+        fontsize=14;
+        labeljust=l;
+        penwidth=1.5;
+
+        f_trigger [label="что запускает:\n• flush() вручную\n• close()\n• порог времени превышен", fillcolor="#FFEDD5"];
+        f_truncate[label="head.truncate(upTo)\nотрезает старое, отдаёт снимок"];
+        f_snapshot[label="HeadSnapshot\nсырые данные, про диск не знает", fillcolor="#FEF3C7"];
+        f_writer  [label="FileBlockWriter\nпишет в <ulid>.tmp, fsync, rename"];
+        f_block   [label="блок на диске\nchunks + index + meta.json + tombstones", fillcolor="#E0E7FF"];
+
+        f_trigger -> f_truncate -> f_snapshot -> f_writer -> f_block;
+    }
+
+    // ---------- ЧТЕНИЕ ----------
+    subgraph cluster_read {
+        label="ЧТЕНИЕ";
+        style="filled,rounded";
+        fillcolor="#F5F3FF";
+        color="#8B5CF6";
+        fontname="Inter";
+        fontsize=14;
+        labeljust=l;
+        penwidth=1.5;
+
+        r_user   [label="querier(промежуток).select(условия)", fillcolor="#EDE9FE"];
+        r_pick   [label="выбрать источники,\nпопадающие в промежуток\n(по minTime/maxTime из meta.json)"];
+        r_head   [label="MemoryHead\nсвежие точки", fillcolor="#DCFCE7"];
+        r_block  [label="DiskBlock 1..N\nстарые точки", fillcolor="#E0E7FF"];
+        r_merge  [label="MergeSeriesSet\nсливает серии по лейблам,\nточки по времени", fillcolor="#EDE9FE"];
+        r_result [label="ответ:\nодна серия, точки из памяти и диска вместе\n= HEAD+BLOCK в демо", fillcolor="#DDD6FE"];
+
+        // Память слева от диска: она передаётся в merge первой.
+        { rank=same; r_head; r_block; }
+        r_head -> r_block [style=invis, weight=100];
+
+        r_user -> r_pick;
+        r_pick -> r_head  [label="  если не пуст"];
+        r_pick -> r_block [label="  если пересекается"];
+        r_head  -> r_merge [label="  первым\n  (выигрывает\n  при равном t)"];
+        r_block -> r_merge;
+        r_merge -> r_result;
+    }
+
+    // ---------- связи между частями ----------
+    w_head -> f_trigger [style=dashed, color="#F97316",
+                         label="  накопилось", fontcolor="#F97316"];
+    f_block -> r_block  [style=dashed, color="#8B5CF6",
+                         label="  при старте поднимается\n  с диска", fontcolor="#8B5CF6"];
+
+    // ---------- ключевая мысль ----------
+    note [shape=note, fillcolor="#FEF9C3", color="#CA8A04", penwidth=1,
+          fontsize=10, margin="0.25,0.18",
+          label="И MemoryHead, и DiskBlock реализуют один интерфейс SeriesSource.\lПоэтому чтению всё равно, откуда данные: оно просто берёт\lподходящие источники и сливает их.\l"];
+    r_merge -> note [style=invis];
+}
