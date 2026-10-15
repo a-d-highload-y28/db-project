@@ -74,6 +74,17 @@ src/main/kotlin/org/pirsbd/tsdb/
 └── head/          — in-memory часть, отдаёт HeadSnapshot при флаше
 ```
 
+## Как данные ходят
+
+![поток данных](docs/dataflow-lab2.png)
+
+Три потока: запись копит точки в памяти, сброс превращает накопленное в блок на
+диске, чтение сливает память и блоки в один ответ. Сброс это отдельное событие,
+он **не** происходит на `commit()`.
+
+Исходник схемы: [docs/dataflow-lab2.dot](docs/dataflow-lab2.dot), перерисовать
+`dot -Tpng -Gdpi=150 docs/dataflow-lab2.dot -o docs/dataflow-lab2.png`.
+
 Ключевая вещь в архитектуре: `SeriesSource` реализуют и `MemoryHead`, и `DiskBlock`,
 поэтому запросу всё равно, откуда пришли данные. `DefaultQuerier` собирает подходящие
 источники и сливает их ленивым k-way merge по лейблам, Head идёт первым и выигрывает
