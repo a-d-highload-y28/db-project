@@ -24,6 +24,12 @@
 ./gradlew compileKotlin
 ```
 
+## CI
+
+Каждый push в `master` и каждый PR прогоняет `./gradlew build` и демо-сценарий
+на JDK 21 — см. [.github/workflows/build.yml](.github/workflows/build.yml).
+Отчёт по упавшим тестам выкладывается артефактом прогона.
+
 ## Тесты
 
 ```bash
