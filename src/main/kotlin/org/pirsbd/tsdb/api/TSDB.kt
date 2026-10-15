@@ -1,7 +1,5 @@
 package org.pirsbd.tsdb.api
 
-data class WriteRequest(val labels: Labels, val sample: Sample)
-
 interface Appender : AutoCloseable {
     fun add(labels: Labels, timestamp: Long, value: Double)
     fun commit()
