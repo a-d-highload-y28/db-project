@@ -12,7 +12,7 @@ value class Labels(private val sorted: List<Label>) : List<Label> by sorted {
     fun get(name: String): String? = sorted.firstOrNull { it.name == name }?.value
 
     companion object {
-        val METRIC_NAME = "__name__"
+        const val METRIC_NAME = "__name__"
 
         fun of(vararg labels: Label): Labels = Labels(labels.toList().sorted())
 
