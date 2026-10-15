@@ -56,9 +56,14 @@ out-of-order вставку с перезаписью дубликата.
 Посмотреть блок руками:
 
 ```bash
-cat demo-data/*/meta.json          # метаданные блока
-xxd -l 16 demo-data/*/index        # magic 0xBAAAD700
 ls -R demo-data/                   # блоки на месте, .tmp не осталось
+cat demo-data/*/meta.json          # метаданные всех блоков
+
+# xxd принимает один файл, а блоков обычно несколько, поэтому выбираем один
+BLOCK=$(ls -d demo-data/*/ | head -1)
+xxd -l 16 "$BLOCK/index"           # magic 0xBAAAD700 и версия
+xxd -s -36 "$BLOCK/index"          # TOC: четыре оффсета секций и CRC
+strings -n 2 "$BLOCK/index"        # symbol table: каждая строка лейбла один раз
 ```
 
 ## Структура
