@@ -1,0 +1,6 @@
+server:
+  port: ${SERVER_PORT}
+
+tsdb:
+  config:
+    directory: ${DB_DIRECTORY}

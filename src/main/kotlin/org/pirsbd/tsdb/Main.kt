@@ -6,6 +6,11 @@ import org.pirsbd.tsdb.api.Matcher
 import org.pirsbd.tsdb.api.Sample
 import org.pirsbd.tsdb.api.TimeRange
 import org.pirsbd.tsdb.api.impl.DefaultTSDB
+import org.springframework.boot.CommandLineRunner
+import org.springframework.boot.autoconfigure.SpringBootApplication
+import org.springframework.boot.runApplication
+import org.springframework.context.ApplicationContext
+import org.springframework.context.annotation.Bean
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
@@ -19,7 +24,8 @@ private fun metric(name: String, vararg pairs: Pair<String, String>): Labels =
 
 private fun Labels.render(): String = joinToString(",") { "${it.name}=${it.value}" }
 
-fun main() {
+
+internal fun demo() {
     val dir = Path("demo-data")
 
     // Сценарий рассказывает историю по шагам, поэтому он обязан начинаться с
@@ -132,4 +138,11 @@ internal fun runDemo(dir: Path, out: Appendable) {
 
     db.close()
     out.appendLine("готово, блоки лежат в $dir, метаданные в meta.json каждого блока")
+}
+
+@SpringBootApplication
+open class Main
+
+fun main(args: Array<String>) {
+    runApplication<Main>(*args)
 }

@@ -2,3 +2,4 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 rootProject.name = "a_d_highload-y28"
+include("web-api")

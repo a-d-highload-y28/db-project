@@ -6,7 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class RawInOrderSeries(private var capacity: Int = 16) : InOrderSeries {
-    private var buffer: ByteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES + (Long.SIZE_BYTES + Double.SIZE_BYTES) * capacity.toInt())
+    private var buffer: ByteBuffer = ByteBuffer.allocate(Int.SIZE_BYTES + (Long.SIZE_BYTES + Double.SIZE_BYTES) * capacity)
         .order(ByteOrder.BIG_ENDIAN)
         .putInt(0)
 
