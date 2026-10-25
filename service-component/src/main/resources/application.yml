@@ -1,0 +1,6 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+tsdb:
+  config:
+    directory: ${DB_DIRECTORY:/var/lib/tsdb}
