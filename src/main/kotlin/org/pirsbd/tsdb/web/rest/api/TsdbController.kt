@@ -2,33 +2,31 @@ package org.pirsbd.tsdb.web.rest.api
 
 import org.pirsbd.tsdb.web.models.Label
 import org.pirsbd.tsdb.web.models.Series
+import org.pirsbd.tsdb.web.rest.api.models.DeleteRequest
+import org.pirsbd.tsdb.web.rest.api.models.InsertRequest
 import org.pirsbd.tsdb.web.rest.api.models.LabelConst
-import org.pirsbd.tsdb.web.rest.api.models.QueryMatcher
+import org.pirsbd.tsdb.web.rest.api.models.QueryRequest
 import org.pirsbd.tsdb.web.service.DbService
 import org.springframework.web.bind.annotation.DeleteMapping
-import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 
 @RestController
 class TsdbController(private val dbService: DbService) {
-    @GetMapping("{name}/query")
+    @PostMapping("{name}/query")
     suspend fun query(
         @PathVariable("name") name: String,
-              @RequestParam(value = "from") from: Long,
-              @RequestParam(value = "to") to: Long,
-              @RequestParam(value = "labels", required = false) labels: List<QueryMatcher>
+        @RequestBody request: QueryRequest,
     ) : List<Series>{
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
 
-        for (label in labels) {
-            matchers.add(Label(name = label.name, value = label.value))
-        }
+        matchers.addAll(request.labels)
 
-        val result = dbService.query(matchers, from, to)
+        val result = dbService.query(matchers, request.from, request.to)
 
         return result
     }
@@ -36,34 +34,26 @@ class TsdbController(private val dbService: DbService) {
     @DeleteMapping("{name}")
     suspend fun delete(
         @PathVariable("name") name: String,
-        @RequestParam(value = "from") from: Long,
-        @RequestParam(value = "to") to: Long,
-        @RequestParam(value = "labels", required = false) labels: List<QueryMatcher>
+        @RequestBody request: DeleteRequest,
     ) {
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
 
-        for (label in labels) {
-            matchers.add(Label(name = label.name, value = label.value))
-        }
+        matchers.addAll(request.labels)
 
-        dbService.delete(matchers, from, to)
+        dbService.delete(matchers, request.from, request.to)
     }
 
     @PutMapping("{name}")
     suspend fun insert(
-        @RequestParam(value = "at") at: Long,
-        @RequestParam(value = "value") value: Double,
         @PathVariable("name") name: String,
-        @RequestParam(value = "labels", required = false) labels: List<QueryMatcher>
+        @RequestBody request: InsertRequest,
     ) {
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
 
-        for (label in labels) {
-            matchers.add(Label(name = label.name, value = label.value))
-        }
+        matchers.addAll(request.labels)
 
-        dbService.insert(matchers, at, value)
+        dbService.insert(matchers, request.at, request.value)
     }
 }

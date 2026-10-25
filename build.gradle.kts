@@ -11,6 +11,8 @@ plugins {
 group = "org.pirsbd.tsdb"
 version = "1.0-SNAPSHOT"
 
+val coroutinesVersion = "1.10.2"
+
 repositories {
     mavenCentral()
 }
@@ -24,9 +26,14 @@ dependencies {
     implementation("tools.jackson.module:jackson-module-kotlin")
     providedRuntime("org.springframework.boot:spring-boot-starter-tomcat-runtime")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+
+
+
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${coroutinesVersion}")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor:${coroutinesVersion}")
 }
 
 kotlin {
