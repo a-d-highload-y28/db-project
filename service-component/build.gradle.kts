@@ -1,5 +1,5 @@
 plugins {
-    kotlin("jvm") version "2.4.10"
+    kotlin("jvm")
     kotlin("plugin.serialization") version "2.4.10"
     war
     id("org.springframework.boot") version "4.1.2"

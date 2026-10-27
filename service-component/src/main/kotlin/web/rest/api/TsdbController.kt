@@ -2,10 +2,10 @@ package org.pirsbd.tsdb.web.rest.api
 
 import org.pirsbd.tsdb.web.models.Label
 import org.pirsbd.tsdb.web.models.Series
-import org.pirsbd.tsdb.web.rest.api.models.DeleteRequest
-import org.pirsbd.tsdb.web.rest.api.models.InsertRequest
+import org.pirsbd.tsdb.web.rest.api.models.DeleteSamplesRequest
+import org.pirsbd.tsdb.web.rest.api.models.InsertSamplesRequest
 import org.pirsbd.tsdb.web.rest.api.models.LabelConst
-import org.pirsbd.tsdb.web.rest.api.models.QueryRequest
+import org.pirsbd.tsdb.web.rest.api.models.QuerySamplesRequest
 import org.pirsbd.tsdb.web.service.DbService
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -19,7 +19,7 @@ class TsdbController(private val dbService: DbService) {
     @PostMapping("{name}/query")
     suspend fun query(
         @PathVariable("name") name: String,
-        @RequestBody request: QueryRequest,
+        @RequestBody request: QuerySamplesRequest,
     ) : List<Series>{
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
@@ -34,7 +34,7 @@ class TsdbController(private val dbService: DbService) {
     @DeleteMapping("{name}")
     suspend fun delete(
         @PathVariable("name") name: String,
-        @RequestBody request: DeleteRequest,
+        @RequestBody request: DeleteSamplesRequest,
     ) {
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
@@ -47,7 +47,7 @@ class TsdbController(private val dbService: DbService) {
     @PutMapping("{name}")
     suspend fun insert(
         @PathVariable("name") name: String,
-        @RequestBody request: InsertRequest,
+        @RequestBody request: InsertSamplesRequest,
     ) {
 
         val matchers = arrayListOf(Label(name = LabelConst.NameLabel, value = name))
