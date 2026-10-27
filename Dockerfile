@@ -15,6 +15,6 @@ copy --from=build /workdir/service-component/build/libs/service-component-1.0-SN
 env SERVER_PORT=8080
 env DB_DIRECTORY=/var/lib/tsdb
 
-expose 8080
+expose $SERVER_PORT
 
 entrypoint ["java", "-jar", "/app/service-component-1.0-SNAPSHOT.jar"]
