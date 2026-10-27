@@ -8,6 +8,7 @@ import org.pirsbd.tsdb.chunks.ChunkRef
 import org.pirsbd.tsdb.index.SeriesChunkMeta
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
+import kotlin.collections.iterator
 
 internal data class IndexSeries(val labels: Labels, val chunks: List<SeriesChunkMeta>)
 

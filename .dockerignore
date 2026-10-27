@@ -1,0 +1,13 @@
+Dockerfile
+README.md
+
+.idea/*
+.github/*
+./gradle/*
+
+build/
+
+docs/*
+
+src/test/*
+
