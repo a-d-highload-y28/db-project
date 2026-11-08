@@ -19,7 +19,8 @@ private fun metric(name: String, vararg pairs: Pair<String, String>): Labels =
 
 private fun Labels.render(): String = joinToString(",") { "${it.name}=${it.value}" }
 
-fun main() {
+
+internal fun demo() {
     val dir = Path("demo-data")
 
     // Сценарий рассказывает историю по шагам, поэтому он обязан начинаться с

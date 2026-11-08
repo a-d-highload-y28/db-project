@@ -100,7 +100,7 @@ internal class MemorySeries(val ref: SeriesRef, val labels: Labels) {
     }
 
     private fun queryLocked(range: TimeRange): ArrayList<Sample> {
-        val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count().toInt() + outOfOrderSeries.size)
+        val accum: ArrayList<Sample> = ArrayList(inOrderSeries.count() + outOfOrderSeries.size)
 
         var outOfOrderPos = kostylOutOfOrderBinLeftSearch(-1, outOfOrderSeries.size, range.minTime)
 
